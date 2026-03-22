@@ -1,7 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
-const nodemailer = require("nodemailer");
+const axios = require("axios"); // ✅ added
 require("dotenv").config();
 
 const app = express();
@@ -13,33 +13,19 @@ const PORT = process.env.PORT || 5000;
 const MONGODB_URI = process.env.MONGODB_URI;
 const ADMIN_KEY = process.env.ADMIN_KEY || "change-this-key";
 
-// 🔐 Check Mongo URI
 if (!MONGODB_URI) {
   console.error("MONGODB_URI is missing in .env");
   process.exit(1);
 }
 
-// 🗄️ MongoDB connect
 mongoose
   .connect(MONGODB_URI)
-  .then(() => console.log("✅ MongoDB connected"))
+  .then(() => console.log("MongoDB connected"))
   .catch((err) => {
-    console.error("❌ MongoDB connection error:", err.message);
+    console.error("MongoDB connection error:", err.message);
     process.exit(1);
   });
 
-// 📩 Brevo transporter (GLOBAL)
-const transporter = nodemailer.createTransport({
-  host: "smtp-relay.brevo.com",
-  port: 587,
-  secure: false,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS
-  }
-});
-
-// 📦 Schema
 const LeadSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
@@ -52,7 +38,6 @@ const LeadSchema = new mongoose.Schema(
 
 const Lead = mongoose.model("Lead", LeadSchema);
 
-// 🏠 Routes
 app.get("/", (req, res) => {
   res.json({ ok: true, message: "Sanskar Web Solutions API is running" });
 });
@@ -61,7 +46,6 @@ app.get("/health", (req, res) => {
   res.json({ ok: true });
 });
 
-// 🚀 CREATE LEAD + EMAIL
 app.post("/api/leads", async (req, res) => {
   try {
     const { name, email, phone, message } = req.body;
@@ -73,7 +57,6 @@ app.post("/api/leads", async (req, res) => {
       });
     }
 
-    // 1️⃣ Save to DB
     const lead = await Lead.create({
       name: String(name).trim(),
       email: String(email).trim(),
@@ -81,31 +64,47 @@ app.post("/api/leads", async (req, res) => {
       message: String(message).trim()
     });
 
-    // 2️⃣ Instant response (FAST ⚡)
+    // ⚡ Fast response
     res.status(201).json({
       ok: true,
       message: "Lead saved successfully",
       leadId: lead._id
     });
 
-    // 3️⃣ Email in background 📩
-    transporter.sendMail({
-      from: `"Sanskar Web Solutions" <${process.env.SMTP_USER}>`,
-      to: process.env.SMTP_USER,
-      subject: "🔥 New Lead Received",
-      text: `
+    // 📩 EMAIL VIA API (background)
+    axios.post(
+      "https://api.brevo.com/v3/smtp/email",
+      {
+        sender: {
+          name: "Sanskar Web Solutions",
+          email: "sanskargupta1295@gmail.com"
+        },
+        to: [
+          {
+            email: "sanskargupta1295@gmail.com"
+          }
+        ],
+        subject: "🔥 New Lead Received",
+        textContent: `
 New lead from website:
 
 Name: ${name}
 Email: ${email}
 Phone: ${phone}
 Message: ${message}
-      `
-    }).then(() => {
-      console.log("📩 Email sent successfully");
-    }).catch((err) => {
-      console.log("❌ Email error:", err.message);
-    });
+        `
+      },
+      {
+        headers: {
+          "api-key": process.env.BREVO_API_KEY,
+          "Content-Type": "application/json"
+        }
+      }
+    )
+    .then(() => console.log("📩 Email sent via API"))
+    .catch((err) =>
+      console.log("❌ API email error:", err.response?.data || err.message)
+    );
 
   } catch (error) {
     console.error("POST /api/leads error:", error);
@@ -116,7 +115,6 @@ Message: ${message}
   }
 });
 
-// 🔐 GET LEADS (ADMIN)
 app.get("/api/leads", async (req, res) => {
   try {
     const key = req.query.key;
@@ -126,16 +124,13 @@ app.get("/api/leads", async (req, res) => {
     }
 
     const leads = await Lead.find().sort({ createdAt: -1 });
-
     return res.json({ ok: true, leads });
-
   } catch (error) {
     console.error("GET /api/leads error:", error);
     return res.status(500).json({ ok: false, message: "Server error" });
   }
 });
 
-// 🚀 Start server
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
