@@ -64,6 +64,29 @@ app.post("/api/leads", async (req, res) => {
       message: String(message).trim()
     });
 
+    // EMAIL SENDING
+let transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL,
+    pass: process.env.EMAIL_PASS
+  }
+});
+
+await transporter.sendMail({
+  from: process.env.EMAIL,
+  to: process.env.EMAIL,
+  subject: "🔥 New Lead Received",
+  text: `
+New lead from website:
+
+Name: ${name}
+Email: ${email}
+Phone: ${phone}
+Message: ${message}
+  `
+});
+
     return res.status(201).json({
       ok: true,
       message: "Lead saved successfully",
