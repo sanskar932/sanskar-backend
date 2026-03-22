@@ -1,106 +1,96 @@
 const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
-require("dotenv").config(); 
+const nodemailer = require("nodemailer");
+require("dotenv").config();
 
 const app = express();
-const nodemailer = require("nodemailer");
 
+// Middlewares
 app.use(cors());
 app.use(express.json());
 
+// ENV variables
 const PORT = process.env.PORT || 5000;
 const MONGODB_URI = process.env.MONGODB_URI;
-const ADMIN_KEY = process.env.ADMIN_KEY || "change-this-key";
+const ADMIN_KEY = process.env.ADMIN_KEY;
 
-if (!MONGODB_URI) {
-  console.error("MONGODB_URI is missing in .env");
-  process.exit(1);
-}
+// MongoDB connect
+mongoose.connect(MONGODB_URI)
+  .then(() => console.log("✅ MongoDB Connected"))
+  .catch(err => console.log("❌ MongoDB Error:", err));
 
-mongoose
-  .connect(MONGODB_URI)
-  .then(() => console.log("MongoDB connected"))
-  .catch((err) => {
-    console.error("MongoDB connection error:", err.message);
-    process.exit(1);
-  });
-
-const LeadSchema = new mongoose.Schema(
-  {
-    name: { type: String, required: true, trim: true },
-    email: { type: String, required: true, trim: true },
-    phone: { type: String, default: "", trim: true },
-    message: { type: String, required: true, trim: true }
-  },
-  { timestamps: true }
-);
+// Schema
+const LeadSchema = new mongoose.Schema({
+  name: String,
+  email: String,
+  phone: String,
+  message: String,
+  createdAt: { type: Date, default: Date.now }
+});
 
 const Lead = mongoose.model("Lead", LeadSchema);
 
+// Home route
 app.get("/", (req, res) => {
-  res.json({ ok: true, message: "Sanskar Web Solutions API is running" });
+  res.json({ ok: true });
 });
 
+// Health check
 app.get("/health", (req, res) => {
   res.json({ ok: true });
 });
 
+// Create lead
 app.post("/api/leads", async (req, res) => {
   try {
     const { name, email, phone, message } = req.body;
 
     if (!name || !email || !message) {
-      return res.status(400).json({
-        ok: false,
-        message: "Name, email, and message are required."
-      });
+      return res.status(400).json({ ok: false, message: "Missing fields" });
     }
 
+    // Save to DB
     const lead = await Lead.create({
-      name: String(name).trim(),
-      email: String(email).trim(),
-      phone: phone ? String(phone).trim() : "",
-      message: String(message).trim()
+      name,
+      email,
+      phone,
+      message
     });
 
-    // EMAIL SENDING
-let transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL,
-    pass: process.env.EMAIL_PASS
-  }
-});
+    // Send response FAST
+    res.status(201).json({ ok: true });
 
-await transporter.sendMail({
-  from: process.env.EMAIL,
-  to: process.env.EMAIL,
-  subject: "🔥 New Lead Received",
-  text: `
+    // Email in background
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.EMAIL,
+        pass: process.env.EMAIL_PASS
+      }
+    });
+
+    transporter.sendMail({
+      from: process.env.EMAIL,
+      to: process.env.EMAIL,
+      subject: "🔥 New Lead Received",
+      text: `
 New lead from website:
 
 Name: ${name}
 Email: ${email}
 Phone: ${phone}
 Message: ${message}
-  `
-});
+      `
+    }).catch(err => console.log("Email Error:", err));
 
-    return res.status(201).json({
-      ok: true,
-      message: "Lead saved successfully",
-      leadId: lead._id
-    });
   } catch (error) {
-    console.error("POST /api/leads error:", error);
-    return res.status(500).json({
-      ok: false,
-      message: "Server error"
-    });
+    console.log("Server Error:", error);
+    res.status(500).json({ ok: false });
   }
 });
 
+// Get leads (admin)
 app.get("/api/leads", async (req, res) => {
   try {
     const key = req.query.key;
@@ -110,13 +100,16 @@ app.get("/api/leads", async (req, res) => {
     }
 
     const leads = await Lead.find().sort({ createdAt: -1 });
-    return res.json({ ok: true, leads });
+
+    res.json({ ok: true, leads });
+
   } catch (error) {
-    console.error("GET /api/leads error:", error);
-    return res.status(500).json({ ok: false, message: "Server error" });
+    console.log(error);
+    res.status(500).json({ ok: false });
   }
 });
 
+// Start server
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
